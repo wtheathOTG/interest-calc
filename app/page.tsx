@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { Moon, Sun } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -263,10 +264,10 @@ function InvestedMadeReadout({
   align?: "left" | "right";
 }) {
   return (
-    <p className={`text-xs leading-4 text-slate-500 ${align === "right" ? "text-right" : ""}`}>
+    <p className={`text-xs leading-4 text-muted-foreground ${align === "right" ? "text-right" : ""}`}>
       <span>{formatCurrency(invested)} invested</span>
-      <span className="mx-1 text-slate-300">|</span>
-      <span className={made >= 0 ? "text-mint" : "text-red-600"}>{formatCurrency(made)} made</span>
+      <span className="mx-1 text-border">|</span>
+      <span className={made >= 0 ? "text-primary" : "text-destructive"}>{formatCurrency(made)} made</span>
     </p>
   );
 }
@@ -303,13 +304,13 @@ function NumberField({
   }, [value]);
 
   return (
-    <Label className="grid min-w-0 content-start gap-1 text-sm font-medium text-ink">
+    <Label className="grid min-w-0 content-start gap-1 text-sm font-medium text-foreground">
       <span className="flex min-h-5 items-start justify-between gap-2 leading-5">
         <span className={`min-w-0 ${noWrapLabel ? "whitespace-nowrap" : "break-words"}`}>{label}</span>
-        {suffix ? <span className="shrink-0 text-xs text-slate-500">{suffix}</span> : null}
+        {suffix ? <span className="shrink-0 text-xs text-muted-foreground">{suffix}</span> : null}
       </span>
       <Input
-        className={`w-full min-w-0 rounded-md border border-line bg-white px-3 text-sm shadow-sm outline-none transition focus:border-mint focus:ring-2 focus:ring-mint/20 disabled:bg-slate-100 disabled:text-slate-500 ${
+        className={`w-full min-w-0 rounded-md border-input bg-card text-foreground shadow-sm focus-visible:ring-ring disabled:bg-muted disabled:text-muted-foreground ${
           compact ? "h-9" : "h-10"
         }`}
         type="number"
@@ -339,7 +340,7 @@ function NumberField({
       />
       {note || reserveNoteSpace ? (
         <span
-          className={`min-h-8 text-xs font-normal leading-4 text-slate-500 ${
+          className={`min-h-8 text-xs font-normal leading-4 text-muted-foreground ${
             note ? "" : "invisible"
           }`}
         >
@@ -362,7 +363,7 @@ function Toggle({
   note?: string;
 }) {
   return (
-    <Label className="flex h-full min-h-[5.75rem] min-w-0 items-start gap-3 rounded-md border border-line bg-white px-3 py-3 text-sm font-medium text-ink shadow-sm">
+    <Label className="flex h-full min-h-[5.75rem] min-w-0 items-start gap-3 rounded-md border border-border bg-card px-3 py-3 text-sm font-medium text-foreground shadow-sm">
       <Checkbox
         className="mt-1"
         checked={checked}
@@ -370,7 +371,7 @@ function Toggle({
       />
       <span className="grid min-w-0 gap-1">
         <span className="break-words leading-5">{label}</span>
-        {note ? <span className="text-xs font-normal leading-4 text-slate-500">{note}</span> : null}
+        {note ? <span className="text-xs font-normal leading-4 text-muted-foreground">{note}</span> : null}
       </span>
     </Label>
   );
@@ -401,12 +402,13 @@ function RangeEditor({
     <div className="grid gap-3">
       <div className="flex flex-wrap items-end justify-between gap-2">
         <div>
-          <h4 className="text-sm font-semibold text-ink">{title}</h4>
-          <p className="mt-1 text-xs leading-snug text-slate-500">{note}</p>
+          <h4 className="text-sm font-semibold text-foreground">{title}</h4>
+          <p className="mt-1 text-xs leading-snug text-muted-foreground">{note}</p>
         </div>
         <Button
           className="h-9"
           type="button"
+          variant="secondary"
           disabled={disabled}
           onClick={() => onChange([...ranges, DEFAULT_RANGE(0, currentAge, endAge)])}
         >
@@ -459,7 +461,7 @@ function RangeEditor({
                 </Button>
               </div>
               {invalid ? (
-                <p className="text-xs font-medium text-red-600 lg:col-span-4">
+                <p className="text-xs font-medium text-destructive lg:col-span-4">
                   This range is ignored because the ending age must be greater than the starting age.
                 </p>
               ) : null}
@@ -483,17 +485,17 @@ function Section({
   children: React.ReactNode;
 }) {
   return (
-    <Card className="bg-field p-4 md:p-5">
+    <Card className="p-4 md:p-5">
       <CardHeader className="mb-5 grid items-start gap-3 p-0 sm:grid-cols-[minmax(0,1fr)_auto]">
         <div className="min-w-0">
-          <CardTitle className="text-xl font-bold text-ink">{title}</CardTitle>
-          <CardDescription className="mt-1 max-w-2xl text-sm leading-6 text-slate-600">
+          <CardTitle className="text-xl font-bold text-foreground">{title}</CardTitle>
+          <CardDescription className="mt-1 max-w-2xl text-sm leading-6 text-muted-foreground">
             {subtitle}
           </CardDescription>
         </div>
         <Card className="justify-self-end px-4 py-3 text-right">
-          <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Projected</div>
-          <div className="whitespace-nowrap text-xl font-bold text-mint">
+          <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Projected</div>
+          <div className="whitespace-nowrap text-xl font-bold text-primary">
             {formatCurrency(bucket.grossValue)}
           </div>
           <InvestedMadeReadout
@@ -511,12 +513,12 @@ function Section({
 function FourPercentReadout({ value }: { value: number }) {
   return (
     <Card className="grid min-h-[5.75rem] content-start gap-1 px-3 py-3">
-      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">4% at retirement</p>
+      <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">4% at retirement</p>
       <p className="whitespace-nowrap text-xl font-bold text-gold">
         {formatCurrency(value)}
-        <span className="text-sm font-semibold text-slate-500"> / year</span>
+        <span className="text-sm font-semibold text-muted-foreground"> / year</span>
       </p>
-      <p className="min-h-8 text-xs leading-4 text-slate-500">Based on this account at retirement age.</p>
+      <p className="min-h-8 text-xs leading-4 text-muted-foreground">Based on this account at retirement age.</p>
     </Card>
   );
 }
@@ -524,7 +526,7 @@ function FourPercentReadout({ value }: { value: number }) {
 function InflationAdjustedAmount({
   value,
   adjustedValue,
-  className = "text-xl font-bold text-ink",
+  className = "text-xl font-bold text-foreground",
   suffix,
   adjustedSuffix = suffix
 }: {
@@ -538,9 +540,9 @@ function InflationAdjustedAmount({
     <div>
       <p className={className}>
         {formatCurrency(value)}
-        {suffix ? <span className="text-sm font-semibold text-slate-500"> {suffix}</span> : null}
+        {suffix ? <span className="text-sm font-semibold text-muted-foreground"> {suffix}</span> : null}
       </p>
-      <p className="text-xs font-semibold leading-4 text-slate-500">
+      <p className="text-xs font-semibold leading-4 text-muted-foreground">
         {formatCurrency(adjustedValue)}
         {adjustedSuffix ? ` ${adjustedSuffix}` : ""} today
       </p>
@@ -549,6 +551,7 @@ function InflationAdjustedAmount({
 }
 
 export default function Home() {
+  const [isDarkMode, setIsDarkMode] = useState(false);
   const [currentAge, setCurrentAge] = useState(20);
   const [retirementAge, setRetirementAge] = useState(45);
   const [endAge, setEndAge] = useState(65);
@@ -587,6 +590,22 @@ export default function Home() {
   const [hsaMax, setHsaMax] = useState(false);
   const [hsaRanges, setHsaRanges] = useState<ContributionRange[]>([]);
   const [hsaRetirementExpense, setHsaRetirementExpense] = useState(0);
+
+  useEffect(() => {
+    const savedTheme = window.localStorage.getItem("theme");
+    const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+    const shouldUseDark = savedTheme ? savedTheme === "dark" : prefersDark;
+
+    setIsDarkMode(shouldUseDark);
+    document.documentElement.classList.toggle("dark", shouldUseDark);
+  }, []);
+
+  const handleDarkModeToggle = () => {
+    const nextMode = !isDarkMode;
+    setIsDarkMode(nextMode);
+    document.documentElement.classList.toggle("dark", nextMode);
+    window.localStorage.setItem("theme", nextMode ? "dark" : "light");
+  };
 
   const handleCurrentAgeChange = (nextAge: number) => {
     const previousAge = currentAge;
@@ -782,11 +801,23 @@ export default function Home() {
     <main className="mx-auto grid w-full max-w-7xl gap-6 px-4 py-6 md:px-6 lg:grid-cols-[1fr_380px]">
       <div className="grid gap-6">
         <header className="grid gap-4">
-          <div>
-            <p className="text-sm font-semibold uppercase tracking-wide text-mint">Savings calculator</p>
-            <h1 className="mt-2 text-3xl font-bold text-ink md:text-4xl">
-              Project taxable, retirement, and HSA balances.
-            </h1>
+          <div className="flex items-start justify-between gap-4">
+            <div>
+            <p className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Savings calculator</p>
+              <h1 className="mt-2 text-3xl font-bold text-foreground md:text-4xl">
+                Project taxable, retirement, and HSA balances.
+              </h1>
+            </div>
+            <Button
+              aria-label={isDarkMode ? "Switch to light mode" : "Switch to dark mode"}
+              className="mt-1 shrink-0"
+              size="icon"
+              type="button"
+              variant="outline"
+              onClick={handleDarkModeToggle}
+            >
+              {isDarkMode ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+            </Button>
           </div>
           <Card className="grid items-start gap-3 p-4 md:grid-cols-2 xl:grid-cols-5">
             <NumberField
@@ -893,24 +924,24 @@ export default function Home() {
 
           <Card className="grid items-start gap-3 p-4 md:grid-cols-2 xl:grid-cols-4">
             <div>
-              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                 Current employee limit
               </p>
-              <p className="text-lg font-bold text-ink">{formatCurrency(current401kLimit)}</p>
+              <p className="text-lg font-bold text-foreground">{formatCurrency(current401kLimit)}</p>
             </div>
             <div>
-              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Traditional now</p>
-              <p className="text-lg font-bold text-ink">
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Traditional now</p>
+              <p className="text-lg font-bold text-foreground">
                 {formatCurrency(current401kContributions.traditional)}
               </p>
             </div>
             <div>
-              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Roth now</p>
-              <p className="text-lg font-bold text-ink">{formatCurrency(current401kContributions.roth)}</p>
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Roth now</p>
+              <p className="text-lg font-bold text-foreground">{formatCurrency(current401kContributions.roth)}</p>
             </div>
             <div>
-              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Projected split</p>
-              <p className="text-sm font-semibold text-slate-600">
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Projected split</p>
+              <p className="text-sm font-semibold text-muted-foreground">
                 Pre-tax {formatCurrency(projection.traditional401k.grossValue)} / Roth{" "}
                 {formatCurrency(projection.roth401k.grossValue)}
               </p>
@@ -1041,7 +1072,7 @@ export default function Home() {
               note="Assumes qualified medical withdrawals; tax-free."
             />
             <NumberField label="Annual return" value={hsaReturn} suffix="%" onChange={setHsaReturn} />
-            <Label className="grid min-w-0 content-start gap-1 text-sm font-medium text-ink">
+            <Label className="grid min-w-0 content-start gap-1 text-sm font-medium text-foreground">
               <span className="flex min-h-5 items-start leading-5">Coverage</span>
               <Select
                 value={hsaCoverage}
@@ -1055,7 +1086,7 @@ export default function Home() {
                   <SelectItem value="family">Family</SelectItem>
                 </SelectContent>
               </Select>
-              <span className="min-h-8 text-xs font-normal leading-4 text-slate-500">
+              <span className="min-h-8 text-xs font-normal leading-4 text-muted-foreground">
                 Current max: {formatCurrency(currentHsaLimit)}
               </span>
             </Label>
@@ -1088,15 +1119,15 @@ export default function Home() {
       </div>
 
       <aside className="lg:sticky lg:top-6 lg:self-start">
-        <Card className="p-4 shadow-lg">
-          <p className="text-sm font-semibold uppercase tracking-wide text-mint">Projected total</p>
-          <Card className="mt-2 grid items-start gap-3 bg-field p-3 sm:grid-cols-[minmax(0,1fr)_minmax(8rem,0.75fr)]">
+        <Card className="p-4">
+          <p className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Projected total</p>
+          <Card className="mt-2 grid items-start gap-3 p-3 sm:grid-cols-[minmax(0,1fr)_minmax(8rem,0.75fr)]">
             <div>
-              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Gross final value</p>
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Gross final value</p>
               <InflationAdjustedAmount
                 value={projection.total.grossValue}
                 adjustedValue={projection.total.grossValue / projection.inflationDiscountFactor}
-                className="text-3xl font-bold text-ink"
+                className="text-3xl font-bold text-foreground"
               />
               <InvestedMadeReadout
                 invested={projection.total.investedValue}
@@ -1104,20 +1135,20 @@ export default function Home() {
               />
             </div>
             <div className="sm:text-right">
-              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">After tax</p>
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">After tax</p>
               <InflationAdjustedAmount
                 value={projection.afterTax}
                 adjustedValue={projection.afterTax / projection.inflationDiscountFactor}
-                className="text-xl font-bold text-mint"
+                className="text-xl font-bold text-primary"
               />
-              <p className="mt-1 text-xs leading-4 text-slate-600">
+              <p className="mt-1 text-xs leading-4 text-muted-foreground">
                 {percentFormatter.format(withdrawalTaxRate)}% on taxable balances.
               </p>
             </div>
           </Card>
 
           <Card className="mt-3 p-3">
-            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
               4% at retirement age
             </p>
             <InflationAdjustedAmount
@@ -1126,20 +1157,20 @@ export default function Home() {
               className="text-xl font-bold text-gold"
               suffix="/ year"
             />
-            <p className="mt-2 text-xs leading-5 text-slate-600">
+            <p className="mt-2 text-xs leading-5 text-muted-foreground">
               Based on the projected gross balance at age {retirementAge}.
             </p>
-            <div className="mt-3 border-t border-line pt-3">
-              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+            <div className="mt-3 border-t border-border pt-3">
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                 Current retirement spending
               </p>
               <InflationAdjustedAmount
                 value={projection.currentRetirementSpending}
                 adjustedValue={projection.currentRetirementSpending / projection.inflationDiscountFactor}
-                className="text-xl font-bold text-red-600"
+                className="text-xl font-bold text-destructive"
                 suffix="/ year"
               />
-              <p className="mt-2 text-xs leading-5 text-slate-600">
+              <p className="mt-2 text-xs leading-5 text-muted-foreground">
                 Sum of all yearly retirement expense inputs.
               </p>
             </div>
@@ -1154,13 +1185,13 @@ export default function Home() {
               ["HSA", projection.hsa]
               ] satisfies Array<[string, ProjectedBucket]>
             ).map(([label, bucket]) => (
-              <div className="flex items-center justify-between gap-3 border-b border-line pb-2" key={label}>
-                <span className="text-slate-600">{label}</span>
+              <div className="flex items-center justify-between gap-3 border-b border-border pb-2" key={label}>
+                <span className="text-muted-foreground">{label}</span>
                 <div className="grid justify-items-end">
                   <InflationAdjustedAmount
                     value={bucket.grossValue}
                     adjustedValue={bucket.grossValue / projection.inflationDiscountFactor}
-                    className="text-right font-bold text-ink"
+                    className="text-right font-bold text-foreground"
                   />
                   <InvestedMadeReadout
                     invested={bucket.investedValue}
@@ -1174,12 +1205,12 @@ export default function Home() {
               ["Taxable on withdrawal", projection.total.taxableOnWithdrawal],
               ["Tax-free on withdrawal", projection.total.taxFreeOnWithdrawal]
             ].map(([label, value]) => (
-              <div className="flex items-center justify-between gap-3 border-b border-line pb-2" key={label}>
-                <span className="text-slate-600">{label}</span>
+              <div className="flex items-center justify-between gap-3 border-b border-border pb-2" key={label}>
+                <span className="text-muted-foreground">{label}</span>
                 <InflationAdjustedAmount
                   value={value as number}
                   adjustedValue={(value as number) / projection.inflationDiscountFactor}
-                  className="text-right font-bold text-ink"
+                  className="text-right font-bold text-foreground"
                 />
               </div>
             ))}
