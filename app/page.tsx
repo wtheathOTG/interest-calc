@@ -3,17 +3,39 @@
 import { useEffect, useMemo, useState } from "react";
 import { Moon, Sun } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { ButtonGroup } from "@/components/ui/button-group";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
+type RangeCadence = "yearly" | "monthly";
+
 type ContributionRange = {
   id: string;
   fromAge: number;
   toAge: number;
   yearlyAmount: number;
+  cadence: RangeCadence;
+};
+
+type EmployerMatchRange = {
+  id: string;
+  fromAge: number;
+  toAge: number;
+  income: number;
+  matchPercent: number;
+  cadence: RangeCadence;
+};
+
+type DebtPaymentRange = {
+  id: string;
+  fromAge: number;
+  toAge: number;
+  hasToAge: boolean;
+  amount: number;
+  cadence: RangeCadence;
 };
 
 type ProjectedBucket = {
@@ -27,6 +49,7 @@ type Debt = {
   id: string;
   value: number;
   interest: number;
+  paymentRanges: DebtPaymentRange[];
 };
 
 type ProjectionInputs = {
@@ -39,7 +62,7 @@ type ProjectionInputs = {
   ranges: ContributionRange[];
   yearlyRetirementExpense: number;
   taxTreatment: "brokerage" | "taxable" | "taxFree";
-  annualContributionOverride?: (age: number) => number;
+  contributionOverride?: (age: number, month: number) => number;
 };
 
 const currencyFormatter = new Intl.NumberFormat("en-US", {
@@ -56,13 +79,33 @@ const DEFAULT_RANGE = (amount = 0, fromAge = 30, toAge = 65): ContributionRange 
   id: crypto.randomUUID(),
   yearlyAmount: amount,
   fromAge,
-  toAge
+  toAge,
+  cadence: "yearly"
+});
+
+const DEFAULT_EMPLOYER_MATCH_RANGE = (fromAge = 30, toAge = 65): EmployerMatchRange => ({
+  id: crypto.randomUUID(),
+  fromAge,
+  toAge,
+  income: 0,
+  matchPercent: 0,
+  cadence: "yearly"
+});
+
+const DEFAULT_DEBT_PAYMENT_RANGE = (fromAge = 30): DebtPaymentRange => ({
+  id: crypto.randomUUID(),
+  fromAge,
+  toAge: fromAge + 1,
+  hasToAge: false,
+  amount: 0,
+  cadence: "yearly"
 });
 
 const DEFAULT_DEBT = (): Debt => ({
   id: crypto.randomUUID(),
   value: 0,
-  interest: 0
+  interest: 0,
+  paymentRanges: []
 });
 
 function clampNumber(value: number, min = 0, max = Number.POSITIVE_INFINITY) {
@@ -80,10 +123,46 @@ function activeYearlyAmount(ranges: ContributionRange[], age: number) {
     }
 
     if (age >= range.fromAge && age < range.toAge) {
-      return total + (Number.isFinite(range.yearlyAmount) ? range.yearlyAmount : 0);
+      const amount = Number.isFinite(range.yearlyAmount) ? range.yearlyAmount : 0;
+      return total + (range.cadence === "monthly" ? amount * 12 : amount);
     }
 
     return total;
+  }, 0);
+}
+
+function activeRangePayment(ranges: ContributionRange[], age: number, month: number) {
+  return ranges.reduce((total, range) => {
+    if (range.toAge <= range.fromAge || age < range.fromAge || age >= range.toAge) {
+      return total;
+    }
+
+    const amount = Number.isFinite(range.yearlyAmount) ? range.yearlyAmount : 0;
+    return total + (range.cadence === "monthly" ? amount : month % 12 === 0 ? amount : 0);
+  }, 0);
+}
+
+function activeDebtPayment(ranges: DebtPaymentRange[], age: number, month: number) {
+  return ranges.reduce((total, range) => {
+    const hasToAge = range.hasToAge === true;
+
+    if (age < range.fromAge || (hasToAge && (range.toAge <= range.fromAge || age >= range.toAge))) {
+      return total;
+    }
+
+    const amount = Number.isFinite(range.amount) ? range.amount : 0;
+    return total + (range.cadence === "monthly" ? amount : month % 12 === 0 ? amount : 0);
+  }, 0);
+}
+
+function activeEmployerMatchPayment(ranges: EmployerMatchRange[], age: number, month: number) {
+  return ranges.reduce((total, range) => {
+    if (range.toAge <= range.fromAge || age < range.fromAge || age >= range.toAge) {
+      return total;
+    }
+
+    const annualMatch = clampNumber(range.income) * (clampNumber(range.matchPercent, 0, 100) / 100);
+    return total + (range.cadence === "monthly" ? annualMatch / 12 : month % 12 === 0 ? annualMatch : 0);
   }, 0);
 }
 
@@ -163,6 +242,47 @@ function resolve401kEmployeeContributions({
   };
 }
 
+function resolve401kEmployeePayment({
+  age,
+  month,
+  traditionalRanges,
+  rothRanges,
+  traditionalMax,
+  rothMax
+}: {
+  age: number;
+  month: number;
+  traditionalRanges: ContributionRange[];
+  rothRanges: ContributionRange[];
+  traditionalMax: boolean;
+  rothMax: boolean;
+}) {
+  const annualContributions = resolve401kEmployeeContributions({
+    age,
+    traditionalRanges,
+    rothRanges,
+    traditionalMax,
+    rothMax
+  });
+
+  if (traditionalMax || rothMax) {
+    return {
+      traditional: month % 12 === 0 ? annualContributions.traditional : 0,
+      roth: month % 12 === 0 ? annualContributions.roth : 0
+    };
+  }
+
+  const intendedTraditional = activeYearlyAmount(traditionalRanges, age);
+  const intendedRoth = activeYearlyAmount(rothRanges, age);
+  const traditionalScale = intendedTraditional > 0 ? annualContributions.traditional / intendedTraditional : 0;
+  const rothScale = intendedRoth > 0 ? annualContributions.roth / intendedRoth : 0;
+
+  return {
+    traditional: activeRangePayment(traditionalRanges, age, month) * traditionalScale,
+    roth: activeRangePayment(rothRanges, age, month) * rothScale
+  };
+}
+
 function projectAccount({
   currentAge,
   retirementAge,
@@ -173,7 +293,7 @@ function projectAccount({
   ranges,
   yearlyRetirementExpense,
   taxTreatment,
-  annualContributionOverride
+  contributionOverride
 }: ProjectionInputs): ProjectedBucket {
   const safeCurrentAge = clampNumber(currentAge);
   const safeRetirementAge = clampNumber(retirementAge);
@@ -188,20 +308,19 @@ function projectAccount({
 
   for (let month = 0; month < months; month += 1) {
     const age = Math.floor(projectionStartAge + month / 12);
-    const annualContribution =
+    const contribution =
       age < safeRetirementAge
-        ? annualContributionOverride
-          ? annualContributionOverride(age)
-          : activeYearlyAmount(ranges, age)
+        ? contributionOverride
+          ? contributionOverride(age, month)
+          : activeRangePayment(ranges, age, month)
         : 0;
     const annualExpense = age >= safeRetirementAge ? clampNumber(yearlyRetirementExpense) : 0;
-    const monthlyInvestment = Math.max(Number.isFinite(annualContribution) ? annualContribution : 0, 0) / 12;
+    const investment = Math.max(Number.isFinite(contribution) ? contribution : 0, 0);
     const monthlyContribution =
-      ((Number.isFinite(annualContribution) ? annualContribution : 0) -
-        (Number.isFinite(annualExpense) ? annualExpense : 0)) /
-      12;
+      (Number.isFinite(contribution) ? contribution : 0) -
+      (Number.isFinite(annualExpense) ? annualExpense : 0) / 12;
 
-    investedValue += monthlyInvestment;
+    investedValue += investment;
     grossValue += monthlyContribution;
 
     if (taxTreatment === "brokerage") {
@@ -262,6 +381,45 @@ function combineBuckets(buckets: ProjectedBucket[]): ProjectedBucket {
   );
 }
 
+function projectSingleDebt({
+  debt,
+  currentAge,
+  endAge
+}: {
+  debt: Debt;
+  currentAge: number;
+  endAge: number;
+}) {
+  const safeCurrentAge = clampNumber(currentAge);
+  const months = Math.max(0, Math.round((clampNumber(endAge) - safeCurrentAge) * 12));
+  const monthlyRate = Math.pow(1 + clampNumber(debt.interest) / 100, 1 / 12) - 1;
+  let balance = clampNumber(debt.value);
+  let paymentsMade = 0;
+  let payoffMonth: number | null = balance <= 0 ? 0 : null;
+
+  for (let month = 0; month < months; month += 1) {
+    const age = Math.floor(safeCurrentAge + month / 12);
+    const payment = clampNumber(activeDebtPayment(debt.paymentRanges ?? [], age, month));
+    const appliedPayment = Math.min(payment, balance);
+
+    paymentsMade += appliedPayment;
+    balance = Math.max(balance - appliedPayment, 0);
+
+    if (balance <= 0) {
+      payoffMonth = month;
+      break;
+    }
+
+    balance *= 1 + monthlyRate;
+  }
+
+  return {
+    balance,
+    paymentsMade,
+    payoffMonth
+  };
+}
+
 function projectDebt({
   debts,
   currentAge,
@@ -271,16 +429,44 @@ function projectDebt({
   currentAge: number;
   endAge: number;
 }) {
-  const months = Math.max(0, Math.round((clampNumber(endAge) - clampNumber(currentAge)) * 12));
+  return debts.reduce(
+    (total, debt) => {
+      const debtProjection = projectSingleDebt({ debt, currentAge, endAge });
 
-  return debts.reduce((total, debt) => {
-    const monthlyRate = Math.pow(1 + clampNumber(debt.interest) / 100, 1 / 12) - 1;
-    return total + clampNumber(debt.value) * Math.pow(1 + monthlyRate, months);
-  }, 0);
+      return {
+        balance: total.balance + debtProjection.balance,
+        paymentsMade: total.paymentsMade + debtProjection.paymentsMade
+      };
+    },
+    { balance: 0, paymentsMade: 0 }
+  );
 }
 
 function formatCurrency(value: number) {
   return currencyFormatter.format(Math.round(value));
+}
+
+function formatPayoffTime(payoffMonth: number | null) {
+  if (payoffMonth === null) {
+    return "Not paid off";
+  }
+
+  if (payoffMonth === 0) {
+    return "Immediate";
+  }
+
+  const years = Math.floor(payoffMonth / 12);
+  const months = payoffMonth % 12;
+
+  if (years === 0) {
+    return `${months} mo`;
+  }
+
+  if (months === 0) {
+    return `${years} yr`;
+  }
+
+  return `${years} yr ${months} mo`;
 }
 
 function InvestedMadeReadout({
@@ -306,6 +492,7 @@ function InvestedMadeReadout({
 function NumberField({
   label,
   value,
+  displayValue,
   onChange,
   note,
   disabled = false,
@@ -314,10 +501,12 @@ function NumberField({
   max,
   reserveNoteSpace = true,
   compact = false,
-  noWrapLabel = false
+  noWrapLabel = false,
+  labelAccessory
 }: {
   label: string;
   value: number;
+  displayValue?: string;
   onChange: (value: number) => void;
   note?: string;
   disabled?: boolean;
@@ -327,24 +516,33 @@ function NumberField({
   reserveNoteSpace?: boolean;
   compact?: boolean;
   noWrapLabel?: boolean;
+  labelAccessory?: React.ReactNode;
 }) {
-  const [draft, setDraft] = useState(String(value));
+  const inputValue = displayValue ?? String(value);
+  const [draft, setDraft] = useState(inputValue);
 
   useEffect(() => {
-    setDraft(String(value));
-  }, [value]);
+    setDraft(inputValue);
+  }, [inputValue]);
 
   return (
     <Label className="grid min-w-0 content-start gap-1 text-sm font-medium text-foreground">
       <span className="flex min-h-5 items-start justify-between gap-2 leading-5">
-        <span className={`min-w-0 ${noWrapLabel ? "whitespace-nowrap" : "break-words"}`}>{label}</span>
+        <span
+          className={`flex min-w-0 items-center gap-2 ${
+            noWrapLabel ? "whitespace-nowrap" : "break-words"
+          }`}
+        >
+          {labelAccessory}
+          <span>{label}</span>
+        </span>
         {suffix ? <span className="shrink-0 text-xs text-muted-foreground">{suffix}</span> : null}
       </span>
       <Input
         className={`w-full min-w-0 rounded-md border-input bg-card text-foreground shadow-sm focus-visible:ring-ring disabled:bg-muted disabled:text-muted-foreground ${
           compact ? "h-9" : "h-10"
         }`}
-        type="number"
+        type={displayValue !== undefined ? "text" : "number"}
         min={Number.isFinite(min) ? min : undefined}
         max={Number.isFinite(max) ? max : undefined}
         value={draft}
@@ -415,6 +613,8 @@ function RangeEditor({
   disabled = false,
   currentAge,
   endAge,
+  amountLabel = "Amount",
+  amountMin = Number.NEGATIVE_INFINITY,
   onChange
 }: {
   title: string;
@@ -423,6 +623,8 @@ function RangeEditor({
   disabled?: boolean;
   currentAge: number;
   endAge: number;
+  amountLabel?: string;
+  amountMin?: number;
   onChange: (ranges: ContributionRange[]) => void;
 }) {
   const updateRange = (id: string, patch: Partial<ContributionRange>) => {
@@ -450,7 +652,7 @@ function RangeEditor({
       <div className="grid gap-2">
         {ranges.map((range) => {
           const invalid = range.toAge <= range.fromAge;
-
+          const cadence = range.cadence ?? "yearly";
           return (
             <Card
               className={`grid gap-3 p-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_8rem] ${
@@ -458,12 +660,30 @@ function RangeEditor({
               } ${disabled ? "opacity-60" : ""}`}
               key={range.id}
             >
+              <div className="lg:col-span-4">
+                <ButtonGroup className={disabled ? "pointer-events-none opacity-60" : ""}>
+                  {(["yearly", "monthly"] satisfies RangeCadence[]).map((option) => (
+                    <Button
+                      className={`h-7 text-xs ${
+                        cadence === option ? "bg-secondary text-secondary-foreground hover:bg-secondary" : ""
+                      }`}
+                      key={option}
+                      type="button"
+                      variant="outline"
+                      disabled={disabled}
+                      onClick={() => updateRange(range.id, { cadence: option })}
+                    >
+                      {option === "yearly" ? "Yearly" : "Monthly"}
+                    </Button>
+                  ))}
+                </ButtonGroup>
+              </div>
               <NumberField
-                label="Yearly amount"
+                label={amountLabel}
                 value={range.yearlyAmount}
                 disabled={disabled}
                 reserveNoteSpace={false}
-                min={Number.NEGATIVE_INFINITY}
+                min={amountMin}
                 onChange={(value) => updateRange(range.id, { yearlyAmount: value })}
               />
               <NumberField
@@ -504,11 +724,245 @@ function RangeEditor({
   );
 }
 
+function EmployerMatchEditor({
+  ranges,
+  currentAge,
+  endAge,
+  onChange
+}: {
+  ranges: EmployerMatchRange[];
+  currentAge: number;
+  endAge: number;
+  onChange: (ranges: EmployerMatchRange[]) => void;
+}) {
+  const updateRange = (id: string, patch: Partial<EmployerMatchRange>) => {
+    onChange(ranges.map((range) => (range.id === id ? { ...range, ...patch } : range)));
+  };
+
+  return (
+    <div className="grid gap-3">
+      <div className="flex flex-wrap items-end justify-between gap-2">
+        <div>
+          <h4 className="text-sm font-semibold text-foreground">Employer match</h4>
+          <p className="mt-1 text-xs leading-snug text-muted-foreground">
+            Match ranges calculate employer pre-tax contributions from income and match percentage.
+          </p>
+        </div>
+        <Button
+          className="h-9"
+          type="button"
+          variant="secondary"
+          onClick={() => onChange([...ranges, DEFAULT_EMPLOYER_MATCH_RANGE(currentAge, endAge)])}
+        >
+          Add match
+        </Button>
+      </div>
+
+      <div className="grid gap-2">
+        {ranges.map((range) => {
+          const invalid = range.toAge <= range.fromAge;
+          const cadence = range.cadence ?? "yearly";
+
+          return (
+            <Card
+              className={`grid gap-3 p-3 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_8rem] ${
+                invalid ? "border-red-300" : ""
+              }`}
+              key={range.id}
+            >
+              <div className="xl:col-span-5">
+                <ButtonGroup>
+                  {(["yearly", "monthly"] satisfies RangeCadence[]).map((option) => (
+                    <Button
+                      className={`h-7 px-2 text-xs ${
+                        cadence === option ? "bg-secondary text-secondary-foreground hover:bg-secondary" : ""
+                      }`}
+                      key={option}
+                      type="button"
+                      variant="outline"
+                      onClick={() => updateRange(range.id, { cadence: option })}
+                    >
+                      {option === "yearly" ? "Yearly" : "Monthly"}
+                    </Button>
+                  ))}
+                </ButtonGroup>
+              </div>
+              <NumberField
+                label="Income"
+                value={range.income}
+                reserveNoteSpace={false}
+                onChange={(value) => updateRange(range.id, { income: value })}
+              />
+              <NumberField
+                label="Match"
+                value={range.matchPercent}
+                suffix="%"
+                min={0}
+                max={100}
+                reserveNoteSpace={false}
+                onChange={(value) => updateRange(range.id, { matchPercent: clampNumber(value, 0, 100) })}
+              />
+              <NumberField
+                label="From age"
+                value={range.fromAge}
+                reserveNoteSpace={false}
+                onChange={(value) => updateRange(range.id, { fromAge: value })}
+              />
+              <NumberField
+                label="To age"
+                value={range.toAge}
+                reserveNoteSpace={false}
+                onChange={(value) => updateRange(range.id, { toAge: value })}
+              />
+              <div className="flex items-end xl:pt-6">
+                <Button
+                  className="h-10 w-full"
+                  variant="outline"
+                  type="button"
+                  onClick={() => onChange(ranges.filter((item) => item.id !== range.id))}
+                >
+                  Remove
+                </Button>
+              </div>
+              {invalid ? (
+                <p className="text-xs font-medium text-destructive xl:col-span-5">
+                  This range is ignored because the ending age must be greater than the starting age.
+                </p>
+              ) : null}
+            </Card>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function DebtPaymentEditor({
+  ranges,
+  currentAge,
+  onChange
+}: {
+  ranges: DebtPaymentRange[];
+  currentAge: number;
+  onChange: (ranges: DebtPaymentRange[]) => void;
+}) {
+  const updateRange = (id: string, patch: Partial<DebtPaymentRange>) => {
+    onChange(ranges.map((range) => (range.id === id ? { ...range, ...patch } : range)));
+  };
+
+  return (
+    <div className="grid gap-3">
+      <div className="flex flex-wrap items-end justify-between gap-2">
+        <div>
+          <h4 className="text-sm font-semibold text-foreground">Debt payments</h4>
+          <p className="mt-1 text-xs leading-snug text-muted-foreground">
+            Payments within time frame or until paid off.
+          </p>
+        </div>
+        <Button
+          className="h-9"
+          type="button"
+          variant="secondary"
+          onClick={() => onChange([...ranges, DEFAULT_DEBT_PAYMENT_RANGE(currentAge)])}
+        >
+          Add payment
+        </Button>
+      </div>
+
+      <div className="grid gap-2">
+        {ranges.map((range) => {
+          const cadence = range.cadence ?? "yearly";
+          const hasToAge = range.hasToAge === true;
+          const invalid = hasToAge && range.toAge <= range.fromAge;
+
+          return (
+            <Card
+              className={`grid gap-3 p-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_8rem] ${
+                invalid ? "border-red-300" : ""
+              }`}
+              key={range.id}
+            >
+              <div className="lg:col-span-4">
+                <ButtonGroup>
+                  {(["yearly", "monthly"] satisfies RangeCadence[]).map((option) => (
+                    <Button
+                      className={`h-7 text-xs ${
+                        cadence === option ? "bg-secondary text-secondary-foreground hover:bg-secondary" : ""
+                      }`}
+                      key={option}
+                      type="button"
+                      variant="outline"
+                      onClick={() => updateRange(range.id, { cadence: option })}
+                    >
+                      {option === "yearly" ? "Yearly" : "Monthly"}
+                    </Button>
+                  ))}
+                </ButtonGroup>
+              </div>
+              <NumberField
+                label="Amount"
+                value={range.amount}
+                min={0}
+                reserveNoteSpace={false}
+                onChange={(value) => updateRange(range.id, { amount: value })}
+              />
+              <NumberField
+                label="From age"
+                value={range.fromAge}
+                reserveNoteSpace={false}
+                onChange={(value) => updateRange(range.id, { fromAge: value })}
+              />
+              <NumberField
+                label="To age"
+                value={range.toAge}
+                displayValue={!hasToAge ? "Until paid" : undefined}
+                disabled={!hasToAge}
+                reserveNoteSpace={false}
+                labelAccessory={
+                  <Checkbox
+                    checked={hasToAge}
+                    onCheckedChange={(checked) =>
+                      updateRange(range.id, {
+                        hasToAge: checked === true,
+                        toAge: range.toAge > range.fromAge ? range.toAge : range.fromAge + 1
+                      })
+                    }
+                  />
+                }
+                onChange={(value) => updateRange(range.id, { toAge: value })}
+              />
+              <div className="flex items-end lg:pt-6">
+                <Button
+                  className="h-10 w-full"
+                  variant="outline"
+                  type="button"
+                  onClick={() => onChange(ranges.filter((item) => item.id !== range.id))}
+                >
+                  Remove
+                </Button>
+              </div>
+              {invalid ? (
+                <p className="text-xs font-medium text-destructive lg:col-span-4">
+                  This payment is ignored because the ending age must be greater than the starting age.
+                </p>
+              ) : null}
+            </Card>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function DebtEditor({
   debts,
+  currentAge,
+  endAge,
   onChange
 }: {
   debts: Debt[];
+  currentAge: number;
+  endAge: number;
   onChange: (debts: Debt[]) => void;
 }) {
   const updateDebt = (id: string, patch: Partial<Debt>) => {
@@ -538,35 +992,74 @@ function DebtEditor({
           <Card className="p-3 text-sm text-muted-foreground">No debts added.</Card>
         ) : null}
 
-        {debts.map((debt) => (
-          <Card className="grid gap-3 p-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_8rem]" key={debt.id}>
-            <NumberField
-              label="Value"
-              value={debt.value}
-              reserveNoteSpace={false}
-              onChange={(value) => updateDebt(debt.id, { value })}
-            />
-            <NumberField
-              label="Interest"
-              value={debt.interest}
-              suffix="%"
-              min={0}
-              max={100}
-              reserveNoteSpace={false}
-              onChange={(value) => updateDebt(debt.id, { interest: clampNumber(value, 0, 100) })}
-            />
-            <div className="flex items-end md:pt-6">
-              <Button
-                className="h-10 w-full"
-                variant="outline"
-                type="button"
-                onClick={() => onChange(debts.filter((item) => item.id !== debt.id))}
-              >
-                Remove
-              </Button>
-            </div>
-          </Card>
-        ))}
+        {debts.map((debt) => {
+          const debtProjection = projectSingleDebt({ debt, currentAge, endAge });
+
+          return (
+            <Card className="grid gap-4 p-3" key={debt.id}>
+              <Card className="grid gap-3 p-3 sm:grid-cols-3">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Projected debt</p>
+                  <p
+                    className={`text-lg font-bold ${
+                      debtProjection.balance > 0 ? "text-destructive" : "text-foreground"
+                    }`}
+                  >
+                    {formatCurrency(debtProjection.balance)}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Payments made</p>
+                  <p
+                    className={`text-lg font-bold ${
+                      debtProjection.paymentsMade > 0 ? "text-destructive" : "text-foreground"
+                    }`}
+                  >
+                    {formatCurrency(debtProjection.paymentsMade)}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Time to pay off</p>
+                  <p className="text-lg font-bold text-foreground">
+                    {formatPayoffTime(debtProjection.payoffMonth)}
+                  </p>
+                </div>
+              </Card>
+              <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_8rem]">
+                <NumberField
+                  label="Value"
+                  value={debt.value}
+                  reserveNoteSpace={false}
+                  onChange={(value) => updateDebt(debt.id, { value })}
+                />
+                <NumberField
+                  label="Interest"
+                  value={debt.interest}
+                  suffix="%"
+                  min={0}
+                  max={100}
+                  reserveNoteSpace={false}
+                  onChange={(value) => updateDebt(debt.id, { interest: clampNumber(value, 0, 100) })}
+                />
+                <div className="flex items-end md:pt-6">
+                  <Button
+                    className="h-10 w-full"
+                    variant="outline"
+                    type="button"
+                    onClick={() => onChange(debts.filter((item) => item.id !== debt.id))}
+                  >
+                    Remove
+                  </Button>
+                </div>
+              </div>
+              <DebtPaymentEditor
+                ranges={debt.paymentRanges ?? []}
+                currentAge={currentAge}
+                onChange={(paymentRanges) => updateDebt(debt.id, { paymentRanges })}
+              />
+            </Card>
+          );
+        })}
       </CardContent>
     </Card>
   );
@@ -670,6 +1163,7 @@ export default function Home() {
   const [traditional401kRanges, setTraditional401kRanges] = useState<ContributionRange[]>([]);
   const [roth401kRanges, setRoth401kRanges] = useState<ContributionRange[]>([]);
   const [employerContributionRanges, setEmployerContributionRanges] = useState<ContributionRange[]>([]);
+  const [employerMatchRanges, setEmployerMatchRanges] = useState<EmployerMatchRange[]>([]);
   const [preTax401kRetirementExpense, setPreTax401kRetirementExpense] = useState(0);
   const [roth401kRetirementExpense, setRoth401kRetirementExpense] = useState(0);
   const [traditional401kMax, setTraditional401kMax] = useState(false);
@@ -751,14 +1245,17 @@ export default function Home() {
         ranges: traditional401kRanges,
         yearlyRetirementExpense: preTax401kRetirementExpense,
         taxTreatment: "taxable",
-        annualContributionOverride: (age) =>
-          resolve401kEmployeeContributions({
+        contributionOverride: (age, month) =>
+          resolve401kEmployeePayment({
             age,
+            month,
             traditionalRanges: traditional401kRanges,
             rothRanges: roth401kRanges,
             traditionalMax: traditional401kMax,
             rothMax: roth401kMax
-          }).traditional + activeYearlyAmount(employerContributionRanges, age)
+          }).traditional +
+          activeRangePayment(employerContributionRanges, age, month) +
+          activeEmployerMatchPayment(employerMatchRanges, age, month)
       });
 
       const roth401k = projectAccount({
@@ -771,9 +1268,10 @@ export default function Home() {
         ranges: roth401kRanges,
         yearlyRetirementExpense: roth401kRetirementExpense,
         taxTreatment: "taxFree",
-        annualContributionOverride: (age) =>
-          resolve401kEmployeeContributions({
+        contributionOverride: (age, month) =>
+          resolve401kEmployeePayment({
             age,
+            month,
             traditionalRanges: traditional401kRanges,
             rothRanges: roth401kRanges,
             traditionalMax: traditional401kMax,
@@ -791,7 +1289,7 @@ export default function Home() {
         ranges: rothIraRanges,
         yearlyRetirementExpense: rothIraRetirementExpense,
         taxTreatment: "taxFree",
-        annualContributionOverride: rothIraMax ? annualRothIraLimit : undefined
+        contributionOverride: rothIraMax ? (age, month) => (month % 12 === 0 ? annualRothIraLimit(age) : 0) : undefined
       });
 
       const hsa = projectAccount({
@@ -804,7 +1302,9 @@ export default function Home() {
         ranges: hsaRanges,
         yearlyRetirementExpense: hsaRetirementExpense,
         taxTreatment: "taxFree",
-        annualContributionOverride: hsaMax ? (age) => annualHsaLimit(age, hsaCoverage) : undefined
+        contributionOverride: hsaMax
+          ? (age, month) => (month % 12 === 0 ? annualHsaLimit(age, hsaCoverage) : 0)
+          : undefined
       });
 
       const k401 = combineBuckets([traditional401k, roth401k]);
@@ -834,11 +1334,14 @@ export default function Home() {
     return {
       ...finalProjection,
       afterTax,
-      grossAfterDebt: finalProjection.total.grossValue - projectedDebt,
-      afterTaxAfterDebt: afterTax - projectedDebt,
-      projectedDebt,
+      grossAfterDebt: finalProjection.total.grossValue - projectedDebt.balance - projectedDebt.paymentsMade,
+      afterTaxAfterDebt: afterTax - projectedDebt.balance - projectedDebt.paymentsMade,
+      projectedDebt: projectedDebt.balance,
+      debtPaymentsMade: projectedDebt.paymentsMade,
       inflationDiscountFactor,
-      fourPercentAtRetirement: Math.max(retirementProjection.total.grossValue - retirementDebt, 0) * 0.04,
+      fourPercentAtRetirement:
+        Math.max(retirementProjection.total.grossValue - retirementDebt.balance - retirementDebt.paymentsMade, 0) *
+        0.04,
       retirementFourPercent: {
         brokerage: retirementProjection.brokerage.grossValue * 0.04,
         preTax401k: retirementProjection.traditional401k.grossValue * 0.04,
@@ -862,6 +1365,7 @@ export default function Home() {
     currentAge,
     debts,
     employerContributionRanges,
+    employerMatchRanges,
     endAge,
     hsaCoverage,
     hsaMax,
@@ -907,12 +1411,7 @@ export default function Home() {
       <div className="grid gap-6">
         <header className="grid gap-4">
           <div className="flex items-start justify-between gap-4">
-            <div>
-            <p className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Savings calculator</p>
-              <h1 className="mt-2 text-3xl font-bold text-foreground md:text-4xl">
-                Project taxable, retirement, and HSA balances.
-              </h1>
-            </div>
+            <h1 className="mt-2 text-3xl font-bold text-foreground md:text-4xl">Savings Calculator</h1>
             <Button
               aria-label={isDarkMode ? "Switch to light mode" : "Switch to dark mode"}
               className="mt-1 shrink-0"
@@ -993,7 +1492,7 @@ export default function Home() {
             />
           </div>
           <RangeEditor
-            title="Yearly additional investments"
+            title="Additional investments"
             note="Enter already post-tax contribution."
             ranges={brokerageRanges}
             currentAge={currentAge}
@@ -1104,6 +1603,12 @@ export default function Home() {
             currentAge={currentAge}
             endAge={retirementAge}
             onChange={setEmployerContributionRanges}
+          />
+          <EmployerMatchEditor
+            ranges={employerMatchRanges}
+            currentAge={currentAge}
+            endAge={retirementAge}
+            onChange={setEmployerMatchRanges}
           />
           <div className="grid items-start gap-3 md:grid-cols-2 xl:grid-cols-4">
             <NumberField
@@ -1228,7 +1733,7 @@ export default function Home() {
           </div>
         </Section>
 
-        <DebtEditor debts={debts} onChange={setDebts} />
+        <DebtEditor debts={debts} currentAge={currentAge} endAge={endAge} onChange={setDebts} />
       </div>
 
       <aside className="lg:sticky lg:top-6 lg:max-h-[calc(100dvh-3rem)] lg:self-start">
@@ -1244,7 +1749,7 @@ export default function Home() {
               />
               <InvestedMadeReadout
                 invested={projection.total.investedValue}
-                made={projection.grossAfterDebt - projection.total.investedValue}
+                made={projection.total.grossValue - projection.total.investedValue}
               />
             </div>
             <div className="sm:text-right">
@@ -1308,17 +1813,20 @@ export default function Home() {
                 </div>
               </div>
             ))}
-            {[
-              ["Projected debt", projection.projectedDebt],
-              ["Taxable on withdrawal", projection.total.taxableOnWithdrawal],
-              ["Tax-free on withdrawal", projection.total.taxFreeOnWithdrawal]
-            ].map(([label, value]) => (
+            {(
+              [
+                ["Projected debt", projection.projectedDebt, projection.projectedDebt > 0 ? "text-destructive" : "text-foreground"],
+                ["Debt payments made", projection.debtPaymentsMade, projection.debtPaymentsMade > 0 ? "text-destructive" : "text-foreground"],
+                ["Taxable on withdrawal", projection.total.taxableOnWithdrawal, "text-foreground"],
+                ["Tax-free on withdrawal", projection.total.taxFreeOnWithdrawal, "text-foreground"]
+              ] satisfies Array<[string, number, string]>
+            ).map(([label, value, valueClassName]) => (
               <div className="flex items-center justify-between gap-3 border-b border-border pb-2" key={label}>
                 <span className="text-muted-foreground">{label}</span>
                 <InflationAdjustedAmount
-                  value={value as number}
-                  adjustedValue={(value as number) / projection.inflationDiscountFactor}
-                  className="text-right font-bold text-foreground"
+                  value={value}
+                  adjustedValue={value / projection.inflationDiscountFactor}
+                  className={`text-right font-bold ${valueClassName}`}
                 />
               </div>
             ))}
