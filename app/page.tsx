@@ -23,6 +23,12 @@ type ProjectedBucket = {
   investedValue: number;
 };
 
+type Debt = {
+  id: string;
+  value: number;
+  interest: number;
+};
+
 type ProjectionInputs = {
   currentAge: number;
   retirementAge: number;
@@ -51,6 +57,12 @@ const DEFAULT_RANGE = (amount = 0, fromAge = 30, toAge = 65): ContributionRange 
   yearlyAmount: amount,
   fromAge,
   toAge
+});
+
+const DEFAULT_DEBT = (): Debt => ({
+  id: crypto.randomUUID(),
+  value: 0,
+  interest: 0
 });
 
 function clampNumber(value: number, min = 0, max = Number.POSITIVE_INFINITY) {
@@ -250,6 +262,23 @@ function combineBuckets(buckets: ProjectedBucket[]): ProjectedBucket {
   );
 }
 
+function projectDebt({
+  debts,
+  currentAge,
+  endAge
+}: {
+  debts: Debt[];
+  currentAge: number;
+  endAge: number;
+}) {
+  const months = Math.max(0, Math.round((clampNumber(endAge) - clampNumber(currentAge)) * 12));
+
+  return debts.reduce((total, debt) => {
+    const monthlyRate = Math.pow(1 + clampNumber(debt.interest) / 100, 1 / 12) - 1;
+    return total + clampNumber(debt.value) * Math.pow(1 + monthlyRate, months);
+  }, 0);
+}
+
 function formatCurrency(value: number) {
   return currencyFormatter.format(Math.round(value));
 }
@@ -265,9 +294,11 @@ function InvestedMadeReadout({
 }) {
   return (
     <p className={`text-xs leading-4 text-muted-foreground ${align === "right" ? "text-right" : ""}`}>
-      <span>{formatCurrency(invested)} invested</span>
+      <span className="whitespace-nowrap">{formatCurrency(invested)} invested</span>
       <span className="mx-1 text-border">|</span>
-      <span className={made >= 0 ? "text-primary" : "text-destructive"}>{formatCurrency(made)} made</span>
+      <span className={`whitespace-nowrap ${made >= 0 ? "text-primary" : "text-destructive"}`}>
+        {formatCurrency(made)} made
+      </span>
     </p>
   );
 }
@@ -473,6 +504,74 @@ function RangeEditor({
   );
 }
 
+function DebtEditor({
+  debts,
+  onChange
+}: {
+  debts: Debt[];
+  onChange: (debts: Debt[]) => void;
+}) {
+  const updateDebt = (id: string, patch: Partial<Debt>) => {
+    onChange(debts.map((debt) => (debt.id === id ? { ...debt, ...patch } : debt)));
+  };
+
+  return (
+    <Card className="p-4 md:p-5">
+      <CardHeader className="mb-5 grid items-start gap-3 p-0 sm:grid-cols-[minmax(0,1fr)_auto]">
+        <div className="min-w-0">
+          <CardTitle className="text-xl font-bold text-foreground">Debt</CardTitle>
+          <CardDescription className="mt-1 max-w-2xl text-sm leading-6 text-muted-foreground">
+            Track debts with compounding interest; enter 0 for interest if there is no interest.
+          </CardDescription>
+        </div>
+        <Button
+          className="h-9 justify-self-start sm:justify-self-end"
+          type="button"
+          onClick={() => onChange([...debts, DEFAULT_DEBT()])}
+        >
+          Add debt
+        </Button>
+      </CardHeader>
+
+      <CardContent className="grid gap-3 p-0">
+        {debts.length === 0 ? (
+          <Card className="p-3 text-sm text-muted-foreground">No debts added.</Card>
+        ) : null}
+
+        {debts.map((debt) => (
+          <Card className="grid gap-3 p-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_8rem]" key={debt.id}>
+            <NumberField
+              label="Value"
+              value={debt.value}
+              reserveNoteSpace={false}
+              onChange={(value) => updateDebt(debt.id, { value })}
+            />
+            <NumberField
+              label="Interest"
+              value={debt.interest}
+              suffix="%"
+              min={0}
+              max={100}
+              reserveNoteSpace={false}
+              onChange={(value) => updateDebt(debt.id, { interest: clampNumber(value, 0, 100) })}
+            />
+            <div className="flex items-end md:pt-6">
+              <Button
+                className="h-10 w-full"
+                variant="outline"
+                type="button"
+                onClick={() => onChange(debts.filter((item) => item.id !== debt.id))}
+              >
+                Remove
+              </Button>
+            </div>
+          </Card>
+        ))}
+      </CardContent>
+    </Card>
+  );
+}
+
 function Section({
   title,
   subtitle,
@@ -551,7 +650,7 @@ function InflationAdjustedAmount({
 }
 
 export default function Home() {
-  const [isDarkMode, setIsDarkMode] = useState(false);
+  const [isDarkMode, setIsDarkMode] = useState(true);
   const [currentAge, setCurrentAge] = useState(20);
   const [retirementAge, setRetirementAge] = useState(45);
   const [endAge, setEndAge] = useState(65);
@@ -590,11 +689,11 @@ export default function Home() {
   const [hsaMax, setHsaMax] = useState(false);
   const [hsaRanges, setHsaRanges] = useState<ContributionRange[]>([]);
   const [hsaRetirementExpense, setHsaRetirementExpense] = useState(0);
+  const [debts, setDebts] = useState<Debt[]>([]);
 
   useEffect(() => {
     const savedTheme = window.localStorage.getItem("theme");
-    const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
-    const shouldUseDark = savedTheme ? savedTheme === "dark" : prefersDark;
+    const shouldUseDark = savedTheme ? savedTheme === "dark" : true;
 
     setIsDarkMode(shouldUseDark);
     document.documentElement.classList.toggle("dark", shouldUseDark);
@@ -724,6 +823,8 @@ export default function Home() {
 
     const finalProjection = buildProjection(endAge);
     const retirementProjection = buildProjection(retirementAge);
+    const projectedDebt = projectDebt({ debts, currentAge, endAge });
+    const retirementDebt = projectDebt({ debts, currentAge, endAge: retirementAge });
     const afterTax =
       finalProjection.total.taxFreeOnWithdrawal +
       finalProjection.total.taxableOnWithdrawal * (1 - withdrawalTaxRate / 100);
@@ -733,8 +834,11 @@ export default function Home() {
     return {
       ...finalProjection,
       afterTax,
+      grossAfterDebt: finalProjection.total.grossValue - projectedDebt,
+      afterTaxAfterDebt: afterTax - projectedDebt,
+      projectedDebt,
       inflationDiscountFactor,
-      fourPercentAtRetirement: retirementProjection.total.grossValue * 0.04,
+      fourPercentAtRetirement: Math.max(retirementProjection.total.grossValue - retirementDebt, 0) * 0.04,
       retirementFourPercent: {
         brokerage: retirementProjection.brokerage.grossValue * 0.04,
         preTax401k: retirementProjection.traditional401k.grossValue * 0.04,
@@ -756,6 +860,7 @@ export default function Home() {
     brokerageStartAge,
     brokerageStartingValue,
     currentAge,
+    debts,
     employerContributionRanges,
     endAge,
     hsaCoverage,
@@ -831,11 +936,18 @@ export default function Home() {
               label="Retirement age"
               value={retirementAge}
               onChange={setRetirementAge}
-              note="Income and max contributions stop at this age."
+              note="Income ends at this age."
               noWrapLabel
               compact
             />
-            <NumberField label="End age" value={endAge} onChange={setEndAge} noWrapLabel compact />
+            <NumberField 
+              label="End age" 
+              value={endAge} 
+              onChange={setEndAge} 
+              note="Simulation ends at this age."
+              noWrapLabel 
+              compact 
+            />
             <NumberField
               label="Tax rate"
               value={withdrawalTaxRate}
@@ -854,7 +966,6 @@ export default function Home() {
               max={100}
               suffix="%"
               onChange={(value) => setInflationRate(clampNumber(value, 0, 100))}
-              note="Used to show final value in today's dollars."
               noWrapLabel
               compact
             />
@@ -872,7 +983,7 @@ export default function Home() {
               label="Starting value"
               value={brokerageStartingValue}
               onChange={setBrokerageStartingValue}
-              note="Already post-tax; estimated withdrawal tax applies only to growth."
+              note="Enter already post-tax value; estimated withdrawal tax applies only to growth."
             />
             <NumberField
               label="Annual return"
@@ -883,7 +994,7 @@ export default function Home() {
           </div>
           <RangeEditor
             title="Yearly additional investments"
-            note="Already post-tax contribution. New ranges default to stop at retirement age."
+            note="Enter already post-tax contribution."
             ranges={brokerageRanges}
             currentAge={currentAge}
             endAge={retirementAge}
@@ -902,7 +1013,7 @@ export default function Home() {
 
         <Section
           title="401k"
-          subtitle="Traditional and Roth employee deferrals share one legal max. Employer cash contributions go into the pre-tax bucket."
+          subtitle="Traditional and Roth 401k's share a max employee contribution. Employer contributions go into the Traditional 401k."
           bucket={projection.k401}
         >
           <div className="grid items-start gap-3 md:grid-cols-2 xl:grid-cols-4">
@@ -917,7 +1028,7 @@ export default function Home() {
               label="Roth starting value"
               value={roth401kStartingValue}
               onChange={setRoth401kStartingValue}
-              note="Roth/post-tax; tax-free on qualified withdrawal."
+              note="Post-tax; tax-free on qualified withdrawal."
             />
             <NumberField label="Annual return" value={k401Return} suffix="%" onChange={setK401Return} />
           </div>
@@ -942,7 +1053,7 @@ export default function Home() {
             <div>
               <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Projected split</p>
               <p className="text-sm font-semibold text-muted-foreground">
-                Pre-tax {formatCurrency(projection.traditional401k.grossValue)} / Roth{" "}
+                Traditional {formatCurrency(projection.traditional401k.grossValue)} / Roth{" "}
                 {formatCurrency(projection.roth401k.grossValue)}
               </p>
             </div>
@@ -970,7 +1081,7 @@ export default function Home() {
 
           <RangeEditor
             title="Traditional 401k employee contributions"
-            note="Pre-tax; taxed on withdrawal. New ranges default to stop at retirement age."
+            note="Pre-tax; taxed on withdrawal."
             ranges={traditional401kRanges}
             disabled={traditional401kMax}
             currentAge={currentAge}
@@ -979,7 +1090,7 @@ export default function Home() {
           />
           <RangeEditor
             title="Roth 401k employee contributions"
-            note="Roth/post-tax contribution; tax-free on qualified withdrawal. New ranges default to stop at retirement age."
+            note="Post-tax contribution; tax-free on qualified withdrawal."
             ranges={roth401kRanges}
             disabled={roth401kMax}
             currentAge={currentAge}
@@ -988,7 +1099,7 @@ export default function Home() {
           />
           <RangeEditor
             title="Employer pre-tax cash contributions"
-            note="Employer pre-tax contribution; taxed on withdrawal. New ranges default to stop at retirement age."
+            note="Employer pre-tax contribution; taxed on withdrawal."
             ranges={employerContributionRanges}
             currentAge={currentAge}
             endAge={retirementAge}
@@ -999,7 +1110,7 @@ export default function Home() {
               label="Pre-tax 401k retirement yearly expense"
               value={preTax401kRetirementExpense}
               onChange={setPreTax401kRetirementExpense}
-              note="Withdraws from the combined traditional and employer pre-tax bucket from retirement age through end age."
+              note="Withdraws from Traditional 401k every yearfrom retirement age through end age."
             />
             <FourPercentReadout value={projection.retirementFourPercent.preTax401k} />
             <NumberField
@@ -1023,7 +1134,7 @@ export default function Home() {
               label="Starting value"
               value={rothIraStartingValue}
               onChange={setRothIraStartingValue}
-              note="Roth/post-tax; tax-free on qualified withdrawal."
+              note="Post-tax; tax-free on qualified withdrawal."
             />
             <NumberField
               label="Annual return"
@@ -1040,7 +1151,7 @@ export default function Home() {
           </div>
           <RangeEditor
             title="Roth IRA contributions"
-            note="Roth/post-tax contribution; tax-free on qualified withdrawal. New ranges default to stop at retirement age."
+            note="Post-tax contribution; tax-free on qualified withdrawal."
             ranges={rothIraRanges}
             disabled={rothIraMax}
             currentAge={currentAge}
@@ -1099,7 +1210,7 @@ export default function Home() {
           </div>
           <RangeEditor
             title="HSA contributions"
-            note="HSA contributions are assumed tax-free when used for qualified medical expenses. New ranges default to stop at retirement age."
+            note="HSA contributions are assumed tax-free when used for qualified medical expenses."
             ranges={hsaRanges}
             disabled={hsaMax}
             currentAge={currentAge}
@@ -1116,29 +1227,31 @@ export default function Home() {
             <FourPercentReadout value={projection.retirementFourPercent.hsa} />
           </div>
         </Section>
+
+        <DebtEditor debts={debts} onChange={setDebts} />
       </div>
 
-      <aside className="lg:sticky lg:top-6 lg:self-start">
-        <Card className="p-4">
+      <aside className="lg:sticky lg:top-6 lg:max-h-[calc(100dvh-3rem)] lg:self-start">
+        <Card className="p-4 lg:max-h-[calc(100dvh-3rem)] lg:overflow-y-auto">
           <p className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Projected total</p>
           <Card className="mt-2 grid items-start gap-3 p-3 sm:grid-cols-[minmax(0,1fr)_minmax(8rem,0.75fr)]">
             <div>
               <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Gross final value</p>
               <InflationAdjustedAmount
-                value={projection.total.grossValue}
-                adjustedValue={projection.total.grossValue / projection.inflationDiscountFactor}
+                value={projection.grossAfterDebt}
+                adjustedValue={projection.grossAfterDebt / projection.inflationDiscountFactor}
                 className="text-3xl font-bold text-foreground"
               />
               <InvestedMadeReadout
                 invested={projection.total.investedValue}
-                made={projection.total.grossValue - projection.total.investedValue}
+                made={projection.grossAfterDebt - projection.total.investedValue}
               />
             </div>
             <div className="sm:text-right">
               <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">After tax</p>
               <InflationAdjustedAmount
-                value={projection.afterTax}
-                adjustedValue={projection.afterTax / projection.inflationDiscountFactor}
+                value={projection.afterTaxAfterDebt}
+                adjustedValue={projection.afterTaxAfterDebt / projection.inflationDiscountFactor}
                 className="text-xl font-bold text-primary"
               />
               <p className="mt-1 text-xs leading-4 text-muted-foreground">
@@ -1149,7 +1262,7 @@ export default function Home() {
 
           <Card className="mt-3 p-3">
             <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              4% at retirement age
+              4% at retirement age ({retirementAge})
             </p>
             <InflationAdjustedAmount
               value={projection.fourPercentAtRetirement}
@@ -1157,9 +1270,6 @@ export default function Home() {
               className="text-xl font-bold text-gold"
               suffix="/ year"
             />
-            <p className="mt-2 text-xs leading-5 text-muted-foreground">
-              Based on the projected gross balance at age {retirementAge}.
-            </p>
             <div className="mt-3 border-t border-border pt-3">
               <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                 Current retirement spending
@@ -1170,9 +1280,6 @@ export default function Home() {
                 className="text-xl font-bold text-destructive"
                 suffix="/ year"
               />
-              <p className="mt-2 text-xs leading-5 text-muted-foreground">
-                Sum of all yearly retirement expense inputs.
-              </p>
             </div>
           </Card>
 
@@ -1202,6 +1309,7 @@ export default function Home() {
               </div>
             ))}
             {[
+              ["Projected debt", projection.projectedDebt],
               ["Taxable on withdrawal", projection.total.taxableOnWithdrawal],
               ["Tax-free on withdrawal", projection.total.taxFreeOnWithdrawal]
             ].map(([label, value]) => (
