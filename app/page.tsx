@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Moon, Sun } from "lucide-react";
+import { ChevronDown, Moon, Sun } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ButtonGroup } from "@/components/ui/button-group";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -51,6 +51,8 @@ type Debt = {
   interest: number;
   paymentRanges: DebtPaymentRange[];
 };
+
+type VisibleCardId = "brokerage" | "k401" | "rothIra" | "hsa" | "debt";
 
 type ProjectionInputs = {
   currentAge: number;
@@ -107,6 +109,14 @@ const DEFAULT_DEBT = (): Debt => ({
   interest: 0,
   paymentRanges: []
 });
+
+const VISIBLE_CARD_OPTIONS = [
+  { value: "brokerage", label: "Brokerage" },
+  { value: "k401", label: "401k" },
+  { value: "rothIra", label: "Roth IRA" },
+  { value: "hsa", label: "HSA" },
+  { value: "debt", label: "Debt" }
+] satisfies Array<{ value: VisibleCardId; label: string }>;
 
 function clampNumber(value: number, min = 0, max = Number.POSITIVE_INFINITY) {
   if (!Number.isFinite(value)) {
@@ -745,7 +755,7 @@ function EmployerMatchEditor({
         <div>
           <h4 className="text-sm font-semibold text-foreground">Employer match</h4>
           <p className="mt-1 text-xs leading-snug text-muted-foreground">
-            Match ranges calculate employer pre-tax contributions from income and match percentage.
+            Ranges calculate employer Traditional 401k contributions from income and match percentage.
           </p>
         </div>
         <Button
@@ -958,11 +968,15 @@ function DebtEditor({
   debts,
   currentAge,
   endAge,
+  selectedCard,
+  onSelectedCardChange,
   onChange
 }: {
   debts: Debt[];
   currentAge: number;
   endAge: number;
+  selectedCard: VisibleCardId;
+  onSelectedCardChange: (card: VisibleCardId) => void;
   onChange: (debts: Debt[]) => void;
 }) {
   const updateDebt = (id: string, patch: Partial<Debt>) => {
@@ -970,10 +984,12 @@ function DebtEditor({
   };
 
   return (
-    <Card className="p-4 md:p-5">
+    <Card className="min-w-0 p-4 md:p-5">
       <CardHeader className="mb-5 grid items-start gap-3 p-0 sm:grid-cols-[minmax(0,1fr)_auto]">
         <div className="min-w-0">
-          <CardTitle className="text-xl font-bold text-foreground">Debt</CardTitle>
+          <CardTitle className="text-xl font-bold text-foreground">
+            <VisibleCardSelect value={selectedCard} onChange={onSelectedCardChange} />
+          </CardTitle>
           <CardDescription className="mt-1 max-w-2xl text-sm leading-6 text-muted-foreground">
             Track debts with compounding interest; enter 0 for interest if there is no interest.
           </CardDescription>
@@ -1065,22 +1081,61 @@ function DebtEditor({
   );
 }
 
+function VisibleCardSelect({
+  value,
+  onChange
+}: {
+  value: VisibleCardId;
+  onChange: (card: VisibleCardId) => void;
+}) {
+  const selectedLabel = VISIBLE_CARD_OPTIONS.find((option) => option.value === value)?.label ?? "Brokerage";
+
+  return (
+    <Select value={value} onValueChange={(nextValue) => onChange(nextValue as VisibleCardId)}>
+      <SelectTrigger
+        asChild
+        aria-label="Visible card"
+      >
+        <Button
+          className="visible-card-select-trigger h-auto min-w-0 justify-start gap-1 px-2 py-1 text-xl font-bold -ml-2"
+          type="button"
+          variant="ghost"
+        >
+          <span>{selectedLabel}</span>
+          <ChevronDown className="shrink-0" />
+        </Button>
+      </SelectTrigger>
+      <SelectContent>
+        {VISIBLE_CARD_OPTIONS.map((option) => (
+          <SelectItem key={option.value} value={option.value}>
+            {option.label}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
+}
+
 function Section({
-  title,
   subtitle,
   bucket,
+  selectedCard,
+  onSelectedCardChange,
   children
 }: {
-  title: string;
   subtitle: string;
   bucket: ProjectedBucket;
+  selectedCard: VisibleCardId;
+  onSelectedCardChange: (card: VisibleCardId) => void;
   children: React.ReactNode;
 }) {
   return (
-    <Card className="p-4 md:p-5">
+    <Card className="min-w-0 p-4 md:p-5">
       <CardHeader className="mb-5 grid items-start gap-3 p-0 sm:grid-cols-[minmax(0,1fr)_auto]">
         <div className="min-w-0">
-          <CardTitle className="text-xl font-bold text-foreground">{title}</CardTitle>
+          <CardTitle className="text-xl font-bold text-foreground">
+            <VisibleCardSelect value={selectedCard} onChange={onSelectedCardChange} />
+          </CardTitle>
           <CardDescription className="mt-1 max-w-2xl text-sm leading-6 text-muted-foreground">
             {subtitle}
           </CardDescription>
@@ -1184,6 +1239,7 @@ export default function Home() {
   const [hsaRanges, setHsaRanges] = useState<ContributionRange[]>([]);
   const [hsaRetirementExpense, setHsaRetirementExpense] = useState(0);
   const [debts, setDebts] = useState<Debt[]>([]);
+  const [visibleCard, setVisibleCard] = useState<VisibleCardId>("brokerage");
 
   useEffect(() => {
     const savedTheme = window.localStorage.getItem("theme");
@@ -1407,9 +1463,9 @@ export default function Home() {
   });
 
   return (
-    <main className="mx-auto grid w-full max-w-7xl gap-6 px-4 py-6 md:px-6 lg:grid-cols-[1fr_380px]">
-      <div className="grid gap-6">
-        <header className="grid gap-4">
+    <main className="mx-auto grid w-full max-w-7xl gap-6 px-4 py-6 md:px-6 lg:grid-cols-[minmax(0,1fr)_380px]">
+      <div className="grid min-w-0 content-start gap-6">
+        <header className="grid min-w-0 gap-4">
           <div className="flex items-start justify-between gap-4">
             <h1 className="mt-2 text-3xl font-bold text-foreground md:text-4xl">Savings Calculator</h1>
             <Button
@@ -1423,7 +1479,7 @@ export default function Home() {
               {isDarkMode ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
             </Button>
           </div>
-          <Card className="grid items-start gap-3 p-4 md:grid-cols-2 xl:grid-cols-5">
+          <Card className="grid min-w-0 grid-cols-5 items-start gap-1.5 p-2">
             <NumberField
               label="Current age"
               value={currentAge}
@@ -1471,10 +1527,12 @@ export default function Home() {
           </Card>
         </header>
 
+        {visibleCard === "brokerage" ? (
         <Section
-          title="Brokerage"
           subtitle="Post-tax contributions with taxable growth at withdrawal."
           bucket={projection.brokerage}
+          selectedCard={visibleCard}
+          onSelectedCardChange={setVisibleCard}
         >
           <div className="grid items-start gap-3 md:grid-cols-3">
             <NumberField label="Start age" value={brokerageStartAge} onChange={setBrokerageStartAge} />
@@ -1509,11 +1567,14 @@ export default function Home() {
             <FourPercentReadout value={projection.retirementFourPercent.brokerage} />
           </div>
         </Section>
+        ) : null}
 
+        {visibleCard === "k401" ? (
         <Section
-          title="401k"
           subtitle="Traditional and Roth 401k's share a max employee contribution. Employer contributions go into the Traditional 401k."
           bucket={projection.k401}
+          selectedCard={visibleCard}
+          onSelectedCardChange={setVisibleCard}
         >
           <div className="grid items-start gap-3 md:grid-cols-2 xl:grid-cols-4">
             <NumberField label="Start age" value={k401StartAge} onChange={setK401StartAge} />
@@ -1579,7 +1640,7 @@ export default function Home() {
           </div>
 
           <RangeEditor
-            title="Traditional 401k employee contributions"
+            title="Traditional 401k contributions"
             note="Pre-tax; taxed on withdrawal."
             ranges={traditional401kRanges}
             disabled={traditional401kMax}
@@ -1588,7 +1649,7 @@ export default function Home() {
             onChange={setTraditional401kRanges}
           />
           <RangeEditor
-            title="Roth 401k employee contributions"
+            title="Roth 401k contributions"
             note="Post-tax contribution; tax-free on qualified withdrawal."
             ranges={roth401kRanges}
             disabled={roth401kMax}
@@ -1597,8 +1658,8 @@ export default function Home() {
             onChange={setRoth401kRanges}
           />
           <RangeEditor
-            title="Employer pre-tax cash contributions"
-            note="Employer pre-tax contribution; taxed on withdrawal."
+            title="Employer cash contributions"
+            note="Employer Traditional 401k contribution; taxed on withdrawal."
             ranges={employerContributionRanges}
             currentAge={currentAge}
             endAge={retirementAge}
@@ -1627,11 +1688,14 @@ export default function Home() {
             <FourPercentReadout value={projection.retirementFourPercent.roth401k} />
           </div>
         </Section>
+        ) : null}
 
+        {visibleCard === "rothIra" ? (
         <Section
-          title="Roth IRA"
           subtitle="Post-tax IRA contributions with tax-free qualified withdrawals."
           bucket={projection.rothIra}
+          selectedCard={visibleCard}
+          onSelectedCardChange={setVisibleCard}
         >
           <div className="grid items-stretch gap-3 md:grid-cols-2 xl:grid-cols-4">
             <NumberField label="Start age" value={rothIraStartAge} onChange={setRothIraStartAge} />
@@ -1673,11 +1737,14 @@ export default function Home() {
             <FourPercentReadout value={projection.retirementFourPercent.rothIra} />
           </div>
         </Section>
+        ) : null}
 
+        {visibleCard === "hsa" ? (
         <Section
-          title="HSA"
           subtitle="Assumes qualified medical withdrawals, so projected HSA value is tax-free."
           bucket={projection.hsa}
+          selectedCard={visibleCard}
+          onSelectedCardChange={setVisibleCard}
         >
           <div className="grid items-stretch gap-3 md:grid-cols-2 xl:grid-cols-5">
             <NumberField label="Start age" value={hsaStartAge} onChange={setHsaStartAge} />
@@ -1732,12 +1799,22 @@ export default function Home() {
             <FourPercentReadout value={projection.retirementFourPercent.hsa} />
           </div>
         </Section>
+        ) : null}
 
-        <DebtEditor debts={debts} currentAge={currentAge} endAge={endAge} onChange={setDebts} />
+        {visibleCard === "debt" ? (
+        <DebtEditor
+          debts={debts}
+          currentAge={currentAge}
+          endAge={endAge}
+          selectedCard={visibleCard}
+          onSelectedCardChange={setVisibleCard}
+          onChange={setDebts}
+        />
+        ) : null}
       </div>
 
-      <aside className="lg:sticky lg:top-6 lg:max-h-[calc(100dvh-3rem)] lg:self-start">
-        <Card className="p-4 lg:max-h-[calc(100dvh-3rem)] lg:overflow-y-auto">
+      <aside className="lg:sticky lg:top-6 lg:self-start">
+        <Card className="p-4">
           <p className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Projected total</p>
           <Card className="mt-2 grid items-start gap-3 p-3 sm:grid-cols-[minmax(0,1fr)_minmax(8rem,0.75fr)]">
             <div>

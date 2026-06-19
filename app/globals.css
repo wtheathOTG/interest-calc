@@ -119,3 +119,15 @@ input:disabled,
 select:disabled {
   cursor: not-allowed;
 }
+
+.visible-card-select-trigger > svg {
+  width: 1.25rem;
+  height: 1.25rem;
+  opacity: 1;
+  stroke-width: 3;
+  transition: transform 150ms ease;
+}
+
+.visible-card-select-trigger[data-state="open"] > svg {
+  transform: rotate(180deg);
+}
